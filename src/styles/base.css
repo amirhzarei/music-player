@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base resets / defaults */
+@layer base {
+  html,
+  body {
+    @apply bg-bg text-text antialiased;
+  }
+
+  ::selection {
+    @apply bg-accent/40 text-text;
+  }
+
+  body {
+    font-feature-settings:
+      "liga" 1,
+      "calt" 1;
+  }
+
+  /* Scrollbar (webkit) */
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    @apply bg-bg-softer rounded-full border border-bg-soft;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    @apply bg-bg-soft;
+  }
+}
+
+/* Component layer */
+@layer components {
+  /* Panels / Cards */
+  .panel {
+    @apply bg-bg-soft/80 backdrop-blur-sm border border-border rounded-lg shadow-soft;
+  }
+
+  .card-hover {
+    @apply transition-colors duration-150;
+  }
+  .card-hover:hover {
+    @apply bg-bg-softer/70;
+  }
+
+  /* Buttons */
+  .icon-btn {
+    @apply inline-flex items-center justify-center rounded-md h-9 w-9 text-text-dim hover:text-text hover:bg-bg-softer/70 transition disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-md bg-accent text-white font-medium px-4 text-sm hover:bg-accent/90 active:scale-[0.97] transition disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center rounded-md text-text-dim hover:text-text hover:bg-bg-softer/70 transition;
+  }
+
+  .badge {
+    @apply inline-flex items-center rounded-pill bg-accent/15 text-accent px-2 py-0.5 font-medium tracking-wide;
+  }
+
+  /* Faded edge (for scroll containers) */
+  .faded-edge {
+    mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      black 12px,
+      black calc(100% - 12px),
+      transparent
+    );
+  }
+
+  /* Progress bar wrapper (for custom audio seek)
+     NOTE: Removed 'group' from @apply. Add class 'group' in JSX if you need group-hover selectors. */
+  .progress-wrapper {
+    @apply relative w-full touch-none select-none;
+    height: 20px; /* extra vertical space for handle hit area */
+  }
+
+  .progress-track {
+    @apply absolute left-0 top-1/2 -translate-y-1/2 w-full rounded-full bg-bg-softer;
+    height: 6px;
+  }
+
+  .progress-buffered {
+    @apply absolute left-0 top-1/2 -translate-y-1/2 h-[6px] rounded-full bg-text-mute/25 pointer-events-none;
+  }
+
+  .progress-played {
+    @apply absolute left-0 top-1/2 -translate-y-1/2 h-[6px] rounded-full bg-accent pointer-events-none;
+  }
+
+  .progress-handle {
+    @apply absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-4 w-4 rounded-full bg-accent shadow-soft scale-0 opacity-0 transition;
+  }
+
+  /* Show handle when hovering or dragging */
+  .progress-wrapper:hover .progress-handle,
+  .progress-wrapper.dragging .progress-handle {
+    @apply scale-100 opacity-100;
+  }
+
+  /* Expand hit target when dragging */
+  .progress-wrapper.dragging .progress-track,
+  .progress-wrapper.dragging .progress-played,
+  .progress-wrapper.dragging .progress-buffered {
+    height: 8px;
+  }
+
+  /* Accessible focus */
+  .progress-wrapper:focus-visible .progress-handle {
+    @apply outline-none ring-2 ring-accent/60 scale-100 opacity-100;
+  }
+
+  /* Animation helper (spin already via tailwind animate-spin) */
+}
+
+/* Utilities (optional custom) */
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
