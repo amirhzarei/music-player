@@ -1,0 +1,42 @@
+/* Example highlight pulse (optional) */
+.lyric-active {
+  position: relative;
+}
+.lyric-active::after {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  width: 4px;
+  height: 60%;
+  transform: translateY(-50%);
+  background: var(--accent, #6366f1);
+  border-radius: 2px;
+}
+
+.ticker-line {
+  position: relative;
+  white-space: nowrap;
+  overflow: hidden;
+  display: block;
+  will-change: transform;
+}
+
+.ticker-overflow {
+  animation: lyric-marquee 9s linear infinite;
+}
+
+@keyframes lyric-marquee {
+  0% {
+    transform: translateX(0);
+  }
+  10% {
+    transform: translateX(0);
+  }
+  90% {
+    transform: translateX(calc(-100% + 100%));
+  }
+  100% {
+    transform: translateX(calc(-100% + 100%));
+  }
+}

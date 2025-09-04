@@ -1,178 +1,112 @@
 import { useEffect, useRef } from "react";
 import { usePlayer } from "../state/playerState.js";
-import { Track } from "../state/types.js";
-import { audioEngine } from "../lib/audioEngine.js";
 
-/**
- * useAudioEngineBinding
- *
- * Bridges the imperative audioEngine with declarative PlayerState.
- * Mount this hook once near the root (inside <PlayerProvider>).
- *
- * Responsibilities:
- * - Load / switch tracks when currentTrackId changes.
- * - Reflect PlayerState.status into actual playback (play/pause).
- * - Dispatch position / duration / buffered updates from engine events.
- * - Handle end-of-track advancing (dispatch NEXT_TRACK).
- * - Propagate engine-originated state transitions (play/pause/errors).
- * - Keep volume & muted in sync.
- *
- * It does NOT:
- * - Decide business logic for queue ordering (handled by reducer).
- * - Persist anything (another hook will manage persistence).
- */
-
-export function useAudioEngineBinding() {
+export const AudioEngineBinding: React.FC = () => {
   const { state, dispatch } = usePlayer();
-  const lastTrackIdRef = useRef<string | undefined>();
-  const wantedPlayRef = useRef<boolean>(false); // tracks user intent to play across loading boundaries
-
-  const currentTrack: Track | undefined = state.queue.find(
-    (t) => t.id === state.currentTrackId
-  );
-
-  /* -------- Track Loading -------- */
-  useEffect(() => {
-    const trackChanged = lastTrackIdRef.current !== state.currentTrackId;
-    if (!trackChanged) return;
-
-    lastTrackIdRef.current = state.currentTrackId;
-
-    if (!currentTrack) {
-      // No track selected => reset engine
-      audioEngine.pause();
-      audioEngine.load("", { autoplay: false });
-      dispatch({ type: "UPDATE_STATUS", status: "idle" });
-      return;
-    }
-
-    // Determine if we should attempt autoplay:
-    // If prior state was 'playing' (i.e., user intended playback) OR status already 'playing'
-    const shouldAutoplay = state.status === "playing";
-
-    if (shouldAutoplay) {
-      wantedPlayRef.current = true;
-    }
-
-    audioEngine.load(currentTrack.src, {
-      autoplay: false, // we'll explicitly call play() after 'canplay'
-      startPosition: 0,
-    });
-
-    // Mark status as loading unless something else already did
-    dispatch({ type: "UPDATE_STATUS", status: "loading" });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.currentTrackId, currentTrack?.src]);
-
-  /* -------- Volume / Mute Sync -------- */
-  useEffect(() => {
-    audioEngine.setVolume(state.volume);
-  }, [state.volume]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const rafRef = useRef<number>();
+  const lastTrackRef = useRef<string | undefined>();
 
   useEffect(() => {
-    audioEngine.setMuted(state.muted);
-  }, [state.muted]);
+    audioRef.current = new Audio();
+    const a = audioRef.current;
+    a.preload = "auto";
 
-  /* -------- Play / Pause Intent Sync -------- */
-  useEffect(() => {
-    if (state.status === "playing") {
-      // User (or UI) requested play.
-      wantedPlayRef.current = true;
-      // If engine already has a src & can play, attempt immediately.
-      audioEngine.play().catch(() => {
-        // Autoplay might fail (gesture requirement) — revert to paused.
-        dispatch({ type: "UPDATE_STATUS", status: "paused" });
-      });
-    } else if (state.status === "paused") {
-      wantedPlayRef.current = false;
-      audioEngine.pause();
-    } else if (state.status === "ended") {
-      wantedPlayRef.current = false;
-      audioEngine.pause();
-    }
-  }, [state.status, dispatch]);
+    const onLoadedMetadata = () => {
+      if (!isNaN(a.duration) && isFinite(a.duration)) {
+        dispatch({ type: "SET_DURATION", duration: a.duration });
+      }
+      if (state.status === "loading") {
+        attemptPlay(a);
+      }
+    };
+    const onPlay = () => dispatch({ type: "UPDATE_STATUS", status: "playing" });
+    const onPause = () => {
+      if (!a.ended) dispatch({ type: "UPDATE_STATUS", status: "paused" });
+    };
+    const onEnded = () => dispatch({ type: "UPDATE_STATUS", status: "paused" });
+    const onError = () => {
+      console.error("[SAFE ENGINE] error", a.error);
+      dispatch({ type: "UPDATE_STATUS", status: "error" });
+    };
 
-  /* -------- Engine Event Subscriptions -------- */
-  useEffect(() => {
-    const offReady = audioEngine.on("ready", ({ duration }) => {
-      dispatch({ type: "SET_DURATION", duration });
-      // If we were waiting to play (user intent captured earlier), try now.
-      if (wantedPlayRef.current) {
-        audioEngine.play().catch(() => {
-          // Leave status as paused if blocked
-          dispatch({ type: "UPDATE_STATUS", status: "paused" });
-        });
-      } else {
-        // If no intent, ensure we are considered paused (unless loading handshake)
-        if (state.status === "loading") {
-          dispatch({ type: "UPDATE_STATUS", status: "paused" });
+    a.addEventListener("loadedmetadata", onLoadedMetadata);
+    a.addEventListener("play", onPlay);
+    a.addEventListener("pause", onPause);
+    a.addEventListener("ended", onEnded);
+    a.addEventListener("error", onError);
+
+    const tick = () => {
+      if (a && !state.ui.seeking) {
+        dispatch({ type: "SET_POSITION", position: a.currentTime });
+        if (a.duration && a.duration !== state.duration) {
+          dispatch({ type: "SET_DURATION", duration: a.duration });
         }
       }
-    });
-
-    const offCanPlay = audioEngine.on("canplay", () => {
-      if (wantedPlayRef.current) {
-        audioEngine.play().catch(() => {
-          dispatch({ type: "UPDATE_STATUS", status: "paused" });
-        });
-      }
-    });
-
-    const offPlay = audioEngine.on("play", () => {
-      dispatch({ type: "UPDATE_STATUS", status: "playing" });
-    });
-
-    const offPause = audioEngine.on("pause", () => {
-      // Avoid overwriting 'loading' or 'ended' with 'paused'
-      if (state.status !== "loading" && state.status !== "ended") {
-        dispatch({ type: "UPDATE_STATUS", status: "paused" });
-      }
-    });
-
-    const offEnded = audioEngine.on("ended", () => {
-      // Engine ended naturally — advance queue logic handled by reducer
-      dispatch({ type: "NEXT_TRACK" });
-    });
-
-    const offTime = audioEngine.on("time", ({ position, duration }) => {
-      dispatch({ type: "SET_POSITION", position });
-      if (duration && duration !== state.duration) {
-        dispatch({ type: "SET_DURATION", duration });
-      }
-    });
-
-    const offBuffer = audioEngine.on("buffer", ({ buffered }) => {
-      dispatch({ type: "SET_BUFFERED", buffered });
-    });
-
-    const offError = audioEngine.on("error", (e) => {
-      dispatch({ type: "ERROR", message: e.message, code: e.code });
-    });
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
 
     return () => {
-      offReady();
-      offCanPlay();
-      offPlay();
-      offPause();
-      offEnded();
-      offTime();
-      offBuffer();
-      offError();
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      a.pause();
+      a.removeAttribute("src");
+      a.load();
+      a.removeEventListener("loadedmetadata", onLoadedMetadata);
+      a.removeEventListener("play", onPlay);
+      a.removeEventListener("pause", onPause);
+      a.removeEventListener("ended", onEnded);
+      a.removeEventListener("error", onError);
     };
-  }, [dispatch, state.duration, state.status]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dispatch]);
 
-  /* -------- Cleanup on Unmount -------- */
   useEffect(() => {
-    return () => {
-      audioEngine.pause();
-    };
-  }, []);
-}
+    const a = audioRef.current;
+    if (!a) return;
 
-/**
- * Convenience component: place <AudioEngineBinding /> inside your root (within PlayerProvider).
- */
-export const AudioEngineBinding: React.FC = () => {
-  useAudioEngineBinding();
+    a.volume = state.muted ? 0 : state.volume;
+
+    if (state.currentTrackId !== lastTrackRef.current) {
+      if (!state.currentTrackId) {
+        a.pause();
+        dispatch({ type: "UPDATE_STATUS", status: "idle" });
+        return;
+      }
+      const track = state.queue.find((t) => t.id === state.currentTrackId);
+      if (!track) return;
+      lastTrackRef.current = track.id;
+      dispatch({ type: "SET_POSITION", position: 0 });
+      dispatch({ type: "SET_DURATION", duration: 0 });
+      dispatch({ type: "UPDATE_STATUS", status: "loading" });
+      a.src = track.src;
+      a.currentTime = 0;
+      // loadedmetadata will attempt play
+    } else {
+      if (state.status === "playing" && a.paused) attemptPlay(a);
+      else if (state.status === "paused" && !a.paused) a.pause();
+    }
+
+    if (!state.ui.seeking) {
+      const diff = Math.abs(a.currentTime - state.position);
+      if (diff > 0.25) a.currentTime = state.position;
+    }
+  }, [
+    state.currentTrackId,
+    state.status,
+    state.volume,
+    state.muted,
+    state.position,
+    state.ui.seeking,
+    state.queue,
+    dispatch,
+  ]);
+
   return null;
 };
+
+function attemptPlay(a: HTMLAudioElement) {
+  a.play().catch((err) => {
+    console.warn("[SAFE ENGINE] play rejected", err?.name, err?.message);
+  });
+}

@@ -1,10 +1,15 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-
 import './styles/base.css';
 import { PlayerProvider } from './state/playerState.js';
 import { AudioEngineBinding } from './hooks/useAudioEngineBinding.js';
 import App from './App.js';
+import { PlayerPersistence } from './hooks/usePlayerPersistence.js';
+import { MediaSessionBinding } from './hooks/useMediaSession.js';
+import { KeyboardShortcutsBinding } from './hooks/useKeyboardShortcuts.js';
+import { MetadataScannerBinding } from './hooks/useMetadataScanner.js';
+import { WaveformScannerBinding } from './hooks/useWaveformScanner.js';
+import { ErrorBoundary } from './components/ErrorBoundary.js';
 
 /**
  * Root entry.
@@ -21,9 +26,16 @@ import App from './App.js';
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     <React.StrictMode>
-        <PlayerProvider>
-            <AudioEngineBinding />
-            <App />
-        </PlayerProvider>
+        <ErrorBoundary>
+            <PlayerProvider>
+                <AudioEngineBinding />
+                <PlayerPersistence />
+                <MediaSessionBinding />
+                <KeyboardShortcutsBinding />
+                <MetadataScannerBinding />
+                <WaveformScannerBinding />
+                <App />
+            </PlayerProvider>
+        </ErrorBoundary>
     </React.StrictMode>
 );

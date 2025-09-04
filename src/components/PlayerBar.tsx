@@ -8,14 +8,23 @@ import {
     VolumeX,
     Shuffle,
     Repeat,
-    Repeat1
+    Repeat1,
+    FileText,
+    FastForward
 } from 'lucide-react';
-import { useCurrentTrack, usePlayerControls, usePlayerState } from '../state/playerState.js';
-import { ProgressBar } from './ProgressBar.js';
+import {
+    usePlayerControls,
+    usePlayerState,
+    useCurrentTrack,
+    usePlayer
+} from '../state/playerState.js';
 import { formatTime } from '../utils/time.js';
+import { WaveformProgress } from './WaveformProgress.js';
+import { CurrentLyricTicker } from './CurrentLyricTicker.js';
 
 export const PlayerBar: React.FC = () => {
     const state = usePlayerState();
+    const { dispatch } = usePlayer();
     const track = useCurrentTrack();
     const {
         play,
@@ -44,15 +53,40 @@ export const PlayerBar: React.FC = () => {
         [setVolume]
     );
 
-    const repeatIcon = state.repeatMode === 'one' ? (
-        <Repeat1 className="h-4 w-4" />
-    ) : (
-        <Repeat className="h-4 w-4" />
-    );
+    const repeatIcon =
+        state.repeatMode === 'one' ? (
+            <Repeat1 className="h-4 w-4" />
+        ) : (
+            <Repeat className="h-4 w-4" />
+        );
+
+    const toggleLyricsPanel = () => {
+        dispatch({
+            type: 'SET_UI',
+            patch: {
+                showLyricsPanel: !state.ui.showLyricsPanel,
+                lyricsEditMode: false
+            }
+        });
+    };
+
+    const toggleGapless = () => {
+        dispatch({
+            type: 'SET_UI',
+            patch: { gaplessEnabled: !state.ui.gaplessEnabled }
+        });
+    };
+
+    const toggleLyricInBar = () => {
+        dispatch({
+            type: 'SET_UI',
+            patch: { showLyricInBar: !state.ui.showLyricInBar }
+        });
+    };
 
     return (
         <div className="panel p-4 flex flex-col gap-3">
-            {/* Track Info */}
+            {/* Track Info + buttons */}
             <div className="flex items-center gap-3 min-w-0">
                 <div className="h-12 w-12 rounded-md bg-bg-softer flex items-center justify-center text-xs text-text-mute overflow-hidden">
                     {track?.artwork ? (
@@ -72,19 +106,53 @@ export const PlayerBar: React.FC = () => {
                     <span className="text-[11px] text-text-mute truncate">
                         {track?.artist || (track ? 'Unknown Artist' : 'Load tracks to start')}
                     </span>
+                    {track?.album && (
+                        <span className="text-[10px] text-text-mute truncate">
+                            {track.album}
+                        </span>
+                    )}
+                </div>
+                <div className="ml-auto flex items-center gap-2">
+                    <button
+                        className={`icon-btn ${state.ui.showLyricInBar ? 'text-accent' : ''}`}
+                        aria-label="Toggle lyric ticker"
+                        title="Lyric ticker"
+                        onClick={toggleLyricInBar}
+                    >
+                        <FileText className="h-5 w-5" />
+                    </button>
+                    <button
+                        className={`icon-btn ${state.ui.gaplessEnabled ? 'text-accent' : ''}`}
+                        aria-label="Toggle gapless playback"
+                        title={`Gapless preload (${state.ui.gaplessEnabled ? 'On' : 'Off'})`}
+                        onClick={toggleGapless}
+                    >
+                        <FastForward className="h-5 w-5" />
+                    </button>
+                    <button
+                        className={`icon-btn ${state.ui.showLyricsPanel ? 'text-accent' : ''}`}
+                        aria-label="Open lyrics panel (L)"
+                        title="Lyrics panel (L)"
+                        onClick={toggleLyricsPanel}
+                    >
+                        <FileText className="h-5 w-5" />
+                    </button>
                 </div>
             </div>
 
-            {/* Progress */}
+            {/* Lyric ticker (compact) */}
+            <CurrentLyricTicker className="mt-1" showNextDefault={false} />
+
+            {/* Waveform / Progress */}
             <div className="flex flex-col gap-1">
-                <ProgressBar />
-                <div className="flex justify-between text-[11px] text-text-mute font-medium">
+                <WaveformProgress height={56} />
+                <div className="flex justify-between text-[11px] text-text-mute font-medium mt-1">
                     <span>{formatTime(state.position)}</span>
                     <span>{formatTime(state.duration)}</span>
                 </div>
             </div>
 
-            {/* Controls */}
+            {/* Transport / Volume */}
             <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-1">
                     <button
@@ -129,7 +197,8 @@ export const PlayerBar: React.FC = () => {
                         <SkipForward className="h-5 w-5" />
                     </button>
                     <button
-                        className={`icon-btn ${state.repeatMode !== 'off' ? 'text-accent' : ''}`}
+                        className={`icon-btn ${state.repeatMode !== 'off' ? 'text-accent' : ''
+                            }`}
                         onClick={cycleRepeat}
                         aria-label="Cycle repeat mode"
                         title={`Repeat: ${state.repeatMode}`}
@@ -138,7 +207,6 @@ export const PlayerBar: React.FC = () => {
                     </button>
                 </div>
 
-                {/* Volume */}
                 <div className="flex items-center gap-2 w-[180px]">
                     <button
                         className="icon-btn"

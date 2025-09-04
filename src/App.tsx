@@ -1,18 +1,18 @@
 import React from 'react';
-import clsx from 'clsx';
 import { PlayerBar } from './components/PlayerBar.js';
-import { SampleLoader } from './components/SampleLoader.js';
 import { Playlist } from './components/Playlist.js';
+import { SampleLoader } from './components/SampleLoader.js';
+import { LocalUpload } from './components/LocalUpload.js';
+import clsx from 'clsx';
+import { LyricsPanel } from './components/LyricsPanel.js';
 
 /**
  * App Root (Updated)
  * Layout:
- *  - Left column: PlayerBar + SampleLoader stacked
+ *  - Left column: PlayerBar + SampleLoader + LocalUpload
  *  - Right column: Playlist
  *
- * Future Enhancements:
- *  - Drag & drop file uploads
- *  - Persistence (load last session)
+ * Upcoming (if you choose next media):
  *  - Media Session API integration
  *  - Keyboard shortcuts
  */
@@ -29,11 +29,13 @@ const App: React.FC = () => {
                 >
                     <div className="flex flex-col gap-6">
                         <PlayerBar />
-                        <SampleLoader />
+                        {/* <SampleLoader /> */}
+                        <LocalUpload />
                     </div>
                     <div className="flex flex-col gap-6">
                         <Playlist className="flex-1" />
                     </div>
+                    <LyricsPanel />
                 </div>
             </main>
             <footer className="py-4 text-center text-[11px] text-text-mute">

@@ -15,6 +15,21 @@ export interface Track {
   addedAt: number; // timestamp (ms)
   local?: boolean; // true if user-provided (File input)
   type?: "audio/mpeg" | "audio/wav" | "audio/ogg" | string;
+  album?: string;
+  waveform?: {
+    version: 1;
+    bars: number;
+    peaks: number[]; // [min0, max0, min1, max1, ...]
+  };
+  lyrics?: {
+    raw: string;
+    format: 'plain' | 'lrc';
+    lines: {
+      time: number | null; // seconds if LRC entry, null for plain
+      text: string;
+    }[];
+    updatedAt: number;
+  };
 }
 
 /**
@@ -22,6 +37,16 @@ export interface Track {
  * "library" vs "playlist" concerns. For now Track already fits persistence.
  */
 export type PersistedTrack = Track;
+
+export type PlayerStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'error';
+export interface PlayerUIState {
+  seeking: boolean;
+  showLyricsPanel?: boolean;
+  lyricsEditMode?: boolean;
+  gaplessEnabled?: boolean;          // user toggle
+  gaplessPreloadSeconds?: number;
+  showLyricInBar?: boolean;
+}
 
 /* ---------- Player State ---------- */
 
@@ -52,10 +77,7 @@ export interface PlayerState {
     code?: string;
   };
   // UI ephemeral flags (not necessarily persisted)
-  ui: {
-    playlistOpen: boolean;
-    seeking: boolean;
-  };
+  ui: PlayerUIState
 }
 
 /* ---------- Events & Actions (for a reducer-like pattern) ---------- */
@@ -111,8 +133,9 @@ export const DEFAULT_PLAYER_STATE: PlayerState = {
   shuffle: false,
   repeatMode: "off",
   ui: {
-    playlistOpen: true,
+    // playlistOpen: true,
     seeking: false,
+
   },
 };
 

@@ -2,403 +2,252 @@ import React, {
   createContext,
   useContext,
   useReducer,
-  useCallback,
   useMemo,
-} from "react";
-import {
-  PlayerState,
-  PlayerAction,
-  DEFAULT_PLAYER_STATE,
+  Dispatch
+} from 'react';
+import type {
   Track,
+  PlayerState,
+  PlayerStatus,
   RepeatMode,
-} from "../state/types.js";
+  PlayerUIState
+} from './types.js';
 
-/**
- * Player State Reducer
- * Pure, synchronous, serializable transformations of PlayerState.
- */
+/* ---------------------------------- Actions --------------------------------- */
+export type PlayerAction =
+  | { type: 'LOAD_QUEUE'; queue: Track[]; startTrackId?: string }
+  | { type: 'REMOVE_TRACK'; trackId: string }
+  | { type: 'SET_CURRENT'; trackId?: string }
+  | { type: 'SET_POSITION'; position: number }
+  | { type: 'SET_DURATION'; duration: number }
+  | { type: 'SET_BUFFERED'; buffered: number }
+  | { type: 'SET_VOLUME'; volume: number }
+  | { type: 'SET_MUTE'; muted: boolean }
+  | { type: 'UPDATE_STATUS'; status: PlayerStatus }
+  | { type: 'SET_UI'; patch: Partial<PlayerUIState> }
+  | { type: 'TOGGLE_SHUFFLE' }
+  | { type: 'SET_REPEAT_MODE'; mode: RepeatMode }
+  | { type: 'UPDATE_TRACK'; trackId: string; patch: Partial<Track> }
+  | { type: 'REORDER_QUEUE'; from: number; to: number };
+
+const initialState: PlayerState = {
+  queue: [],
+  currentTrackId: undefined,
+  status: 'idle',
+  position: 0,
+  duration: 0,
+  buffered: 0,
+  volume: 0.9,
+  muted: false,
+  shuffle: false,
+  repeatMode: 'off',
+  ui: {
+  seeking: false,
+  showLyricsPanel: false,
+  lyricsEditMode: false,
+  gaplessEnabled: true,
+  gaplessPreloadSeconds: 6,
+  showLyricInBar: true   // NEW
+}
+};
 
 function playerReducer(state: PlayerState, action: PlayerAction): PlayerState {
   switch (action.type) {
-    case "LOAD_QUEUE": {
-      const queue = action.queue.slice();
-      let currentTrackId = action.startTrackId;
-
-      if (!currentTrackId && queue.length > 0) {
-        currentTrackId = queue[0].id;
-      }
+    case 'LOAD_QUEUE':
       return {
         ...state,
-        queue,
-        currentTrackId,
+        queue: action.queue,
+        currentTrackId: action.startTrackId,
+        status: action.startTrackId ? 'loading' : 'idle',
         position: 0,
         duration: 0,
-        status: queue.length ? "paused" : "idle",
+        buffered: 0
       };
+    case 'REMOVE_TRACK': {
+      const queue = state.queue.filter(t => t.id !== action.trackId);
+      let currentTrackId = state.currentTrackId;
+      let status = state.status;
+      if (state.currentTrackId === action.trackId) {
+        currentTrackId = undefined;
+        status = queue.length ? 'idle' : 'idle';
+      }
+      return { ...state, queue, currentTrackId, status };
     }
-
-    case "SET_CURRENT": {
-      if (state.currentTrackId === action.trackId) return state;
-      const exists = state.queue.some((t) => t.id === action.trackId);
-      if (!exists) return state;
+    case 'SET_CURRENT':
+      if (action.trackId && !state.queue.find(t => t.id === action.trackId)) return state;
       return {
         ...state,
         currentTrackId: action.trackId,
+        status: action.trackId ? 'loading' : 'idle',
         position: 0,
         duration: 0,
-        status: "loading",
+        buffered: 0
       };
-    }
-
-    case "UPDATE_STATUS":
-      return { ...state, status: action.status };
-
-    case "SET_POSITION":
+    case 'SET_POSITION':
       return { ...state, position: action.position };
-
-    case "SET_BUFFERED":
-      return { ...state, buffered: action.buffered };
-
-    case "SET_DURATION":
+    case 'SET_DURATION':
       return { ...state, duration: action.duration };
-
-    case "SET_VOLUME":
-      return {
-        ...state,
-        volume: Math.min(1, Math.max(0, action.volume)),
-        muted: action.volume === 0 ? state.muted : state.muted,
-      };
-
-    case "TOGGLE_MUTE":
-      return { ...state, muted: !state.muted };
-
-    case "SET_MUTE":
+    case 'SET_BUFFERED':
+      return { ...state, buffered: action.buffered };
+    case 'SET_VOLUME':
+      return { ...state, volume: action.volume };
+    case 'SET_MUTE':
       return { ...state, muted: action.muted };
-
-    case "TOGGLE_SHUFFLE":
+    case 'UPDATE_STATUS':
+      return { ...state, status: action.status };
+    case 'SET_UI':
+      return { ...state, ui: { ...state.ui, ...action.patch } };
+    case 'TOGGLE_SHUFFLE':
       return { ...state, shuffle: !state.shuffle };
-
-    case "SET_REPEAT_MODE":
+    case 'SET_REPEAT_MODE':
       return { ...state, repeatMode: action.mode };
-
-    case "REMOVE_TRACK": {
-      const queue = state.queue.filter((t) => t.id !== action.trackId);
-      let currentTrackId = state.currentTrackId;
-      if (currentTrackId === action.trackId) {
-        currentTrackId = queue[0]?.id;
-      }
-      return {
-        ...state,
-        queue,
-        currentTrackId,
-        status: queue.length ? state.status : "idle",
-      };
-    }
-
-    case "ADD_TRACKS": {
-      const existingIds = new Set(state.queue.map((t) => t.id));
-      const newOnes = action.tracks.filter((t) => !existingIds.has(t.id));
-      const queue =
-        action.append !== false
-          ? [...state.queue, ...newOnes]
-          : [...newOnes, ...state.queue];
+    case 'UPDATE_TRACK': {
+      const queue = state.queue.map(t =>
+        t.id === action.trackId ? { ...t, ...action.patch } : t
+      );
       return { ...state, queue };
     }
-
-    case "REORDER_QUEUE": {
-      const queue = state.queue.slice();
+    case 'REORDER_QUEUE': {
+      const { from, to } = action;
       if (
-        action.from < 0 ||
-        action.from >= queue.length ||
-        action.to < 0 ||
-        action.to >= queue.length
-      ) {
-        return state;
-      }
-      const [moved] = queue.splice(action.from, 1);
-      queue.splice(action.to, 0, moved);
-      return { ...state, queue };
+        from < 0 ||
+        to < 0 ||
+        from >= state.queue.length ||
+        to >= state.queue.length ||
+        from === to
+      ) return state;
+      const newQueue = state.queue.slice();
+      const [moved] = newQueue.splice(from, 1);
+      newQueue.splice(to, 0, moved);
+      return { ...state, queue: newQueue };
     }
-
-    case "NEXT_TRACK": {
-      if (!state.queue.length) return state;
-
-      // If shuffle, pick a random different track
-      if (state.shuffle) {
-        const candidates = state.queue.filter(
-          (t) => t.id !== state.currentTrackId
-        );
-        if (candidates.length === 0) return state;
-        const random =
-          candidates[Math.floor(Math.random() * candidates.length)];
-        return {
-          ...state,
-          currentTrackId: random.id,
-          position: 0,
-          duration: 0,
-          status: "loading",
-        };
-      }
-
-      const idx = state.queue.findIndex((t) => t.id === state.currentTrackId);
-      if (idx === -1) {
-        return {
-          ...state,
-          currentTrackId: state.queue[0].id,
-          position: 0,
-          duration: 0,
-          status: "loading",
-        };
-      }
-
-      if (idx === state.queue.length - 1) {
-        // End of queue
-        if (state.repeatMode === "all") {
-          const first = state.queue[0];
-          return {
-            ...state,
-            currentTrackId: first.id,
-            position: 0,
-            duration: 0,
-            status: "loading",
-          };
-        } else {
-          return {
-            ...state,
-            status: state.repeatMode === "one" ? "loading" : "ended",
-            position: 0,
-          };
-        }
-      }
-
-      const next = state.queue[idx + 1];
-      return {
-        ...state,
-        currentTrackId: next.id,
-        position: 0,
-        duration: 0,
-        status: "loading",
-      };
-    }
-
-    case "PREV_TRACK": {
-      if (!state.queue.length) return state;
-      const idx = state.queue.findIndex((t) => t.id === state.currentTrackId);
-      if (idx <= 0) {
-        // restart current or keep first
-        return {
-          ...state,
-          position: 0,
-        };
-      }
-      const prev = state.queue[idx - 1];
-      return {
-        ...state,
-        currentTrackId: prev.id,
-        position: 0,
-        duration: 0,
-        status: "loading",
-      };
-    }
-
-    case "ERROR":
-      return {
-        ...state,
-        status: "error",
-        error: { message: action.message, code: action.code },
-      };
-
-    case "CLEAR_ERROR":
-      if (state.status === "error") {
-        return { ...state, status: "paused", error: undefined };
-      }
-      return { ...state, error: undefined };
-
-    case "SET_UI":
-      return {
-        ...state,
-        ui: { ...state.ui, ...action.patch },
-      };
-
     default:
       return state;
   }
 }
 
-/* ---------- Contexts ---------- */
-
+/* Context */
 interface PlayerContextValue {
   state: PlayerState;
-  dispatch: React.Dispatch<PlayerAction>;
-  // Convenience action wrappers (these may later integrate with audio engine)
-  play: () => void;
-  pause: () => void;
-  seek: (seconds: number) => void;
-  loadQueue: (tracks: Track[], startTrackId?: string) => void;
-  setCurrent: (trackId: string) => void;
-  next: () => void;
-  prev: () => void;
-  setVolume: (v: number) => void;
-  toggleMute: () => void;
-  toggleShuffle: () => void;
-  cycleRepeat: () => void;
+  dispatch: Dispatch<PlayerAction>;
 }
-
 const PlayerContext = createContext<PlayerContextValue | undefined>(undefined);
 
-/* ---------- Provider ---------- */
-
-export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({
-  children,
-}) => {
-  const [state, dispatch] = useReducer(playerReducer, DEFAULT_PLAYER_STATE);
-
-  // In future we will inject audio engine methods here.
-
-  const play = useCallback(() => {
-    // Actual audio engine play will dispatch status updates.
-    dispatch({ type: "UPDATE_STATUS", status: "playing" });
-  }, []);
-
-  const pause = useCallback(() => {
-    dispatch({ type: "UPDATE_STATUS", status: "paused" });
-  }, []);
-
-  const seek = useCallback((seconds: number) => {
-    dispatch({ type: "SET_POSITION", position: Math.max(0, seconds) });
-  }, []);
-
-  const loadQueue = useCallback((tracks: Track[], startTrackId?: string) => {
-    dispatch({ type: "LOAD_QUEUE", queue: tracks, startTrackId });
-  }, []);
-
-  const setCurrent = useCallback((trackId: string) => {
-    dispatch({ type: "SET_CURRENT", trackId });
-  }, []);
-
-  const next = useCallback(() => {
-    dispatch({ type: "NEXT_TRACK" });
-  }, []);
-
-  const prev = useCallback(() => {
-    dispatch({ type: "PREV_TRACK" });
-  }, []);
-
-  const setVolume = useCallback((v: number) => {
-    dispatch({ type: "SET_VOLUME", volume: v });
-  }, []);
-
-  const toggleMute = useCallback(() => {
-    dispatch({ type: "TOGGLE_MUTE" });
-  }, []);
-
-  const toggleShuffle = useCallback(() => {
-    dispatch({ type: "TOGGLE_SHUFFLE" });
-  }, []);
-
-  const cycleRepeat = useCallback(() => {
-    const order: RepeatMode[] = ["off", "one", "all"];
-    const idx = order.indexOf(state.repeatMode);
-    const nextMode = order[(idx + 1) % order.length];
-    dispatch({ type: "SET_REPEAT_MODE", mode: nextMode });
-  }, [state.repeatMode]);
-
-  const value: PlayerContextValue = useMemo(
-    () => ({
-      state,
-      dispatch,
-      play,
-      pause,
-      seek,
-      loadQueue,
-      setCurrent,
-      next,
-      prev,
-      setVolume,
-      toggleMute,
-      toggleShuffle,
-      cycleRepeat,
-    }),
-    [
-      state,
-      play,
-      pause,
-      seek,
-      loadQueue,
-      setCurrent,
-      next,
-      prev,
-      setVolume,
-      toggleMute,
-      toggleShuffle,
-      cycleRepeat,
-    ]
-  );
-
+export const PlayerProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
+  const [state, dispatch] = useReducer(playerReducer, initialState);
+  const value = useMemo(() => ({ state, dispatch }), [state]);
   return React.createElement(PlayerContext.Provider, { value }, children);
 };
 
-/* ---------- Hooks ---------- */
-
-export function usePlayer() {
+export function usePlayer(): PlayerContextValue {
   const ctx = useContext(PlayerContext);
-  if (!ctx) {
-    throw new Error("usePlayer must be used within <PlayerProvider>");
-  }
+  if (!ctx) throw new Error('usePlayer must be used within PlayerProvider');
   return ctx;
 }
-
-export function usePlayerState() {
+export function usePlayerState(): PlayerState {
   return usePlayer().state;
 }
+export function useCurrentTrack(): Track | undefined {
+  const { state } = usePlayer();
+  return state.queue.find(t => t.id === state.currentTrackId);
+}
 
+/* Controls */
 export function usePlayerControls() {
-  const {
-    play,
-    pause,
-    seek,
-    next,
-    prev,
-    setVolume,
-    toggleMute,
-    toggleShuffle,
-    cycleRepeat,
-    setCurrent,
-    loadQueue,
-  } = usePlayer();
+  const { state, dispatch } = usePlayer();
+
+  const play = () => {
+    if (!state.currentTrackId && state.queue.length) {
+      dispatch({ type: 'SET_CURRENT', trackId: state.queue[0].id });
+      return;
+    }
+    if (state.currentTrackId) {
+      dispatch({ type: 'UPDATE_STATUS', status: 'playing' });
+    }
+  };
+
+  const pause = () => {
+    if (state.status === 'playing') {
+      dispatch({ type: 'UPDATE_STATUS', status: 'paused' });
+    }
+  };
+
+  const setCurrent = (trackId: string) =>
+    dispatch({ type: 'SET_CURRENT', trackId });
+
+  const loadQueue = (queue: Track[], startTrackId?: string) =>
+    dispatch({ type: 'LOAD_QUEUE', queue, startTrackId });
+
+  const next = () => {
+    if (!state.queue.length || !state.currentTrackId) return;
+    const idx = state.queue.findIndex(t => t.id === state.currentTrackId);
+
+    if (state.repeatMode === 'one') {
+      dispatch({ type: 'SET_POSITION', position: 0 });
+      dispatch({ type: 'UPDATE_STATUS', status: 'playing' });
+      return;
+    }
+
+    if (state.shuffle) {
+      const others = state.queue.filter(t => t.id !== state.currentTrackId);
+      if (!others.length) return;
+      const pick = others[Math.floor(Math.random() * others.length)];
+      dispatch({ type: 'SET_CURRENT', trackId: pick.id });
+      return;
+    }
+
+    let nextIndex = idx + 1;
+    if (nextIndex >= state.queue.length) {
+      if (state.repeatMode === 'all') nextIndex = 0;
+      else {
+        dispatch({ type: 'UPDATE_STATUS', status: 'paused' });
+        return;
+      }
+    }
+    dispatch({ type: 'SET_CURRENT', trackId: state.queue[nextIndex].id });
+  };
+
+  const prev = () => {
+    if (!state.queue.length || !state.currentTrackId) return;
+    const idx = state.queue.findIndex(t => t.id === state.currentTrackId);
+    if (idx <= 0) {
+      dispatch({ type: 'SET_POSITION', position: 0 });
+      return;
+    }
+    dispatch({ type: 'SET_CURRENT', trackId: state.queue[idx - 1].id });
+  };
+
+  const seek = (position: number) =>
+    dispatch({ type: 'SET_POSITION', position });
+
+  const setVolume = (volume: number) =>
+    dispatch({ type: 'SET_VOLUME', volume });
+
+  const toggleMute = () => dispatch({ type: 'SET_MUTE', muted: !state.muted });
+
+  const toggleShuffle = () => dispatch({ type: 'TOGGLE_SHUFFLE' });
+
+  const cycleRepeat = () => {
+    const order: RepeatMode[] = ['off', 'one', 'all'];
+    const idx = order.indexOf(state.repeatMode);
+    dispatch({ type: 'SET_REPEAT_MODE', mode: order[(idx + 1) % order.length] });
+  };
+
+  const reorder = (from: number, to: number) =>
+    dispatch({ type: 'REORDER_QUEUE', from, to });
+
   return {
     play,
     pause,
-    seek,
     next,
     prev,
+    seek,
     setVolume,
     toggleMute,
     toggleShuffle,
     cycleRepeat,
     setCurrent,
     loadQueue,
+    reorder
   };
 }
-
-export function useCurrentTrack(): Track | undefined {
-  const { state } = usePlayer();
-  return state.queue.find((t) => t.id === state.currentTrackId);
-}
-
-/**
- * Simple helper to derive playback progress ratio (0..1).
- */
-export function useProgressRatio(): number {
-  const { position, duration } = usePlayerState();
-  if (!duration || duration <= 0) return 0;
-  return Math.min(1, position / duration);
-}
-
-/**
- * (Future) Integration Notes:
- * - audioEngine.ts will subscribe to state changes (currentTrackId, status, seek)
- *   and dispatch back real duration, position, buffered updates.
- * - We'll add an effect wrapper hook (e.g., useAudioEngineBinding) that sits
- *   near root (inside PlayerProvider or below) to connect DOM <audio>.
- */
