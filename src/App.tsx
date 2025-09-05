@@ -1,7 +1,6 @@
 import React from 'react';
 import { PlayerBar } from './components/PlayerBar.js';
 import { Playlist } from './components/Playlist.js';
-import { SampleLoader } from './components/SampleLoader.js';
 import { LocalUpload } from './components/LocalUpload.js';
 import clsx from 'clsx';
 import { LyricsPanel } from './components/LyricsPanel.js';

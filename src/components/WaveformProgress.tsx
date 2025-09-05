@@ -40,7 +40,7 @@ export const WaveformProgress: React.FC<WaveformProgressProps> = ({
     const pathData = useMemo(() => {
         if (!waveform || !bars) return '';
         const peaks = waveform.peaks;
-        const width = bars;
+        // const width = bars;
         const h = height;
         const mid = h / 2;
 
